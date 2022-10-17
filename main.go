@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 )
 
 const (
@@ -22,25 +23,52 @@ type Token struct {
 }
 
 type Node interface {
-	getToken() Token
+	eval() interface{}
+	getType() string
 }
 
 type BinOp struct {
-	left  *Node
-	token Token
-	right *Node
+	left  Node
+	op    Token
+	right Node
 }
 
-func (node BinOp) getToken() Token {
-	return node.token
+func (node BinOp) getType() string {
+	return "binop"
+}
+
+func (node BinOp) eval() interface{} {
+	lVal := node.left.eval()
+	rVal := node.right.eval()
+	if lVal == nil || rVal == nil {
+		log.Fatal("Invalid operation")
+	}
+	switch node.op.tt {
+	case add:
+		return lVal.(int) + rVal.(int)
+	case sub:
+		return lVal.(int) - rVal.(int)
+	case mul:
+		return lVal.(int) * rVal.(int)
+	case div:
+		return lVal.(int) / rVal.(int)
+	}
+	return nil
 }
 
 type NumNode struct {
 	token Token
 }
 
-func (node NumNode) getToken() Token {
-	return node.token
+func (node NumNode) getType() string {
+	return "numnode"
+}
+func (node NumNode) eval() interface{} {
+	val, err := strconv.Atoi(node.token.val)
+	if err != nil {
+		log.Fatal("Invalid number at", node.token.pos)
+	}
+	return val
 }
 
 type Parser struct {
@@ -48,6 +76,7 @@ type Parser struct {
 	tokens []Token
 }
 
+// Lexer
 func lexer(s string) []Token {
 	tokens := []Token{}
 	for i := 0; i < len(s); i++ {
@@ -72,11 +101,12 @@ func lexer(s string) []Token {
 func getNum(i *int, s string) string {
 	res := ""
 	for ; *i < len(s) && s[*i] <= '9' && s[*i] >= '0'; *i++ {
-		res = string(s[*i]) + res
+		res += string(s[*i])
 	}
 	return res
 }
 
+// Parser
 func (p *Parser) next() Token {
 	if p.cur >= len(p.tokens) {
 		log.Fatal("EOF reached!")
@@ -133,7 +163,8 @@ func (p *Parser) factor() Node {
 	for p.match([]string{mul, div}) {
 		op := p.prev()
 		right := p.primary()
-		left = BinOp{left: &left, token: op, right: &right}
+		temp := BinOp{left: left, op: op, right: right}
+		left = temp
 	}
 	return left
 }
@@ -143,7 +174,8 @@ func (p *Parser) term() Node {
 	for p.match([]string{add, sub}) {
 		op := p.prev()
 		right := p.factor()
-		left = BinOp{left: &left, token: op, right: &right}
+		temp := BinOp{left: left, op: op, right: right}
+		left = temp
 	}
 	return left
 }
@@ -151,6 +183,8 @@ func (p *Parser) term() Node {
 func (p *Parser) parse() Node {
 	return p.term()
 }
+
+// Interpreter
 
 func main() {
 	log.SetFlags(log.Lshortfile)
@@ -162,8 +196,9 @@ func main() {
 		// fmt.Println(tokens)
 		parser := Parser{0, tokens}
 		ast := parser.parse()
-		// fmt.Printf("%+v\n", ast)
-		fmt.Println(ast)
+		// fmt.Println(ast)
+		res := ast.eval()
+		fmt.Println(res)
 	}
 
 }
