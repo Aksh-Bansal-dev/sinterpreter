@@ -9,11 +9,13 @@ import (
 )
 
 const (
-	mul = "MUL"
-	div = "DIV"
-	add = "ADD"
-	sub = "SUB"
-	num = "NUM"
+	mul   = "MUL"
+	div   = "DIV"
+	add   = "ADD"
+	sub   = "SUB"
+	num   = "NUM"
+	lPara = "L_PARA"
+	rPara = "R_PARA"
 )
 
 type Token struct {
@@ -51,9 +53,28 @@ func (node BinOp) eval() interface{} {
 	case mul:
 		return lVal.(int) * rVal.(int)
 	case div:
+		if rVal.(int) == 0 {
+			log.Fatal("Division by 0")
+		}
 		return lVal.(int) / rVal.(int)
 	}
 	return nil
+}
+
+type UnaryOp struct {
+	token Token
+	right Node
+}
+
+func (node UnaryOp) getType() string {
+	return "unary_op"
+}
+func (node UnaryOp) eval() interface{} {
+	rVal := node.right.eval()
+	if node.token.tt == sub {
+		return -(rVal.(int))
+	}
+	return rVal
 }
 
 type NumNode struct {
@@ -89,6 +110,10 @@ func lexer(s string) []Token {
 			tokens = append(tokens, Token{mul, i, ""})
 		} else if c == '/' {
 			tokens = append(tokens, Token{div, i, ""})
+		} else if c == ')' {
+			tokens = append(tokens, Token{rPara, i, ""})
+		} else if c == '(' {
+			tokens = append(tokens, Token{lPara, i, ""})
 		} else if c >= '0' && c <= '9' {
 			tokens = append(tokens, Token{num, i, getNum(&i, s)})
 			i--
@@ -153,16 +178,31 @@ func (p *Parser) primary() Node {
 	if t.tt == num {
 		p.next()
 		return NumNode{token: t}
+	} else if t.tt == lPara {
+		p.next()
+		innerNode := p.term()
+		p.consume([]string{rPara}, fmt.Sprintf("Expected ) at %d", p.cur))
+		return innerNode
 	}
 	log.Fatal("Expected number at", t.pos)
 	return nil
 }
+func (p *Parser) unary() Node {
+	t := p.tokens[p.cur]
+	if t.tt == sub {
+		op := p.next()
+		right := p.primary()
+		uNode := UnaryOp{op, right}
+		return uNode
+	}
+	return p.primary()
+}
 
 func (p *Parser) factor() Node {
-	left := p.primary()
+	left := p.unary()
 	for p.match([]string{mul, div}) {
 		op := p.prev()
-		right := p.primary()
+		right := p.unary()
 		temp := BinOp{left: left, op: op, right: right}
 		left = temp
 	}
@@ -183,8 +223,6 @@ func (p *Parser) term() Node {
 func (p *Parser) parse() Node {
 	return p.term()
 }
-
-// Interpreter
 
 func main() {
 	log.SetFlags(log.Lshortfile)
