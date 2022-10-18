@@ -1,3 +1,9 @@
+program        → statement* EOF ;
+statement      → exprStmt
+               | printStmt ;
+
+exprStmt       → comparison ";" ;
+printStmt      → "print" comparison ";" ;
 comparison           → term ( ( "<=" | ">=" | "<" | ">" | "==" || "!=" ) term )* ;
 term           → factor ( ( "-" | "+" ) factor )* ;
 factor         → unary ( ( "/" | "*" ) unary )* ;

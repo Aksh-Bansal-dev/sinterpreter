@@ -9,15 +9,14 @@ import (
 )
 
 const (
-	mul   = "MUL"
-	div   = "DIV"
-	add   = "ADD"
-	sub   = "SUB"
-	num   = "NUM"
-	lPara = "L_PARA"
-	rPara = "R_PARA"
-	equal = "EQUALS"
-	// TODO
+	mul                = "MUL"
+	div                = "DIV"
+	add                = "ADD"
+	sub                = "SUB"
+	num                = "NUM"
+	lPara              = "L_PARA"
+	rPara              = "R_PARA"
+	equal              = "EQUALS"
 	boolT              = "BOOL"
 	not                = "NOT"
 	notEqual           = "NOT_EQUALS"
@@ -25,17 +24,32 @@ const (
 	greaterThanOrEqual = "GREATER_THAN_OR_EQUALS"
 	lessThan           = "GREATER"
 	greaterThan        = "LESSER"
+	semicolon          = "SEMICOLON"
+	printT             = "PRINT"
 )
 
 type Token struct {
-	tt  string
-	pos int
-	val string
+	tt   string
+	col  int
+	line int
+	val  string
 }
 
 type Node interface {
 	eval() interface{}
 	getType() string
+}
+
+type PrintStmt struct {
+	expr Node
+}
+
+func (node PrintStmt) getType() string {
+	return "print_stmt"
+}
+func (node PrintStmt) eval() interface{} {
+	fmt.Println(node.expr.eval())
+	return nil
 }
 
 type BinOp struct {
@@ -111,7 +125,7 @@ func (node PrimaryNode) eval() interface{} {
 	if node.token.tt == num {
 		val, err := strconv.Atoi(node.token.val)
 		if err != nil {
-			log.Fatal("Invalid number at", node.token.pos)
+			log.Fatal("Invalid number at", node.token.col)
 		}
 		return val
 	} else if node.token.tt == boolT {
@@ -131,45 +145,52 @@ type Parser struct {
 }
 
 // Lexer
-func lexer(s string) []Token {
+func lexer(s string, line int) []Token {
 	tokens := []Token{}
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if c == '+' {
-			tokens = append(tokens, Token{add, i, ""})
+			tokens = append(tokens, Token{add, i, line, ""})
 		} else if c == '-' {
-			tokens = append(tokens, Token{sub, i, ""})
+			tokens = append(tokens, Token{sub, i, line, ""})
 		} else if c == '*' {
-			tokens = append(tokens, Token{mul, i, ""})
+			tokens = append(tokens, Token{mul, i, line, ""})
 		} else if c == '/' {
-			tokens = append(tokens, Token{div, i, ""})
+			tokens = append(tokens, Token{div, i, line, ""})
 		} else if c == ')' {
-			tokens = append(tokens, Token{rPara, i, ""})
+			tokens = append(tokens, Token{rPara, i, line, ""})
 		} else if c == '(' {
-			tokens = append(tokens, Token{lPara, i, ""})
+			tokens = append(tokens, Token{lPara, i, line, ""})
 		} else if c >= '0' && c <= '9' {
-			tokens = append(tokens, Token{num, i, getNum(&i, s)})
+			tokens = append(tokens, Token{num, i, line, getNum(&i, s)})
 		} else if getKeyword(&i, s, []string{"true"}) != "" {
-			tokens = append(tokens, Token{boolT, i, "true"})
+			tokens = append(tokens, Token{boolT, i, line, "true"})
+		} else if getKeyword(&i, s, []string{"print"}) != "" {
+			tokens = append(tokens, Token{printT, i, line, ""})
 		} else if getKeyword(&i, s, []string{"false"}) != "" {
-			tokens = append(tokens, Token{boolT, i, "false"})
+			tokens = append(tokens, Token{boolT, i, line, "false"})
 		} else if getKeyword(&i, s, []string{">="}) != "" {
-			tokens = append(tokens, Token{greaterThanOrEqual, i, ""})
+			tokens = append(tokens, Token{greaterThanOrEqual, i, line, ""})
 		} else if getKeyword(&i, s, []string{"<="}) != "" {
-			tokens = append(tokens, Token{lessThanOrEqual, i, ""})
+			tokens = append(tokens, Token{lessThanOrEqual, i, line, ""})
 		} else if getKeyword(&i, s, []string{"<"}) != "" {
-			tokens = append(tokens, Token{lessThan, i, ""})
+			tokens = append(tokens, Token{lessThan, i, line, ""})
 		} else if getKeyword(&i, s, []string{">"}) != "" {
-			tokens = append(tokens, Token{greaterThan, i, ""})
+			tokens = append(tokens, Token{greaterThan, i, line, ""})
 		} else if getKeyword(&i, s, []string{"=="}) != "" {
-			tokens = append(tokens, Token{equal, i, ""})
+			tokens = append(tokens, Token{equal, i, line, ""})
 		} else if getKeyword(&i, s, []string{"!="}) != "" {
-			tokens = append(tokens, Token{notEqual, i, ""})
+			tokens = append(tokens, Token{notEqual, i, line, ""})
 		} else if c == '!' {
-			tokens = append(tokens, Token{not, i, ""})
+			tokens = append(tokens, Token{not, i, line, ""})
+		} else if c == ';' {
+			tokens = append(tokens, Token{semicolon, i, line, ""})
 		} else if c == ' ' {
 			continue
+		} else {
+			log.Fatal("Invalid token")
 		}
+
 	}
 	return tokens
 }
@@ -195,7 +216,7 @@ func getKeyword(idx *int, s string, keywords []string) string {
 // Parser
 func (p *Parser) next() Token {
 	if p.cur >= len(p.tokens) {
-		log.Fatal("EOF reached!")
+		log.Fatal("EOF reached or missing ;")
 	}
 	t := p.tokens[p.cur]
 	p.cur++
@@ -288,23 +309,54 @@ func (p *Parser) comparision() Node {
 	return left
 }
 
+func (p *Parser) printStmt() Node {
+	expr := p.comparision()
+	p.consume([]string{semicolon}, fmt.Sprintf("expected ; at %d", p.cur))
+	return PrintStmt{expr}
+}
+
+func (p *Parser) exprStmt() Node {
+	expr := p.comparision()
+	p.consume([]string{semicolon}, fmt.Sprintf("expected ; at %d", p.cur))
+	return expr
+}
+
+func (p *Parser) statement() Node {
+	if p.match([]string{printT}) {
+		return p.printStmt()
+	}
+	return p.exprStmt()
+}
+
 func (p *Parser) parse() Node {
-	return p.comparision()
+	return p.statement()
 }
 
 func main() {
 	log.SetFlags(log.Lshortfile)
-	reader := bufio.NewReader(os.Stdin)
+	filePath := os.Args[1]
+	if filePath[len(filePath)-3:] != ".si" {
+		log.Fatal("Invalid file extension")
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Fatal("File doesn't exists")
+	}
+	reader := bufio.NewReader(file)
+	lineNum := 1
 	for {
-		fmt.Print("♪ ")
-		inp, _, _ := reader.ReadLine()
-		tokens := lexer(string(inp))
+		inp, _, err := reader.ReadLine()
+		if err != nil {
+			return
+		}
+		tokens := lexer(string(inp), lineNum)
 		// fmt.Println(tokens)
 		parser := Parser{0, tokens}
 		ast := parser.parse()
 		// fmt.Println(ast)
-		res := ast.eval()
-		fmt.Println(res)
+		ast.eval()
+		// fmt.Println(res)
+		lineNum++
 	}
 
 }
