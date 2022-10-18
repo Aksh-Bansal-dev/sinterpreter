@@ -216,7 +216,7 @@ func getKeyword(idx *int, s string, keywords []string) string {
 // Parser
 func (p *Parser) next() Token {
 	if p.cur >= len(p.tokens) {
-		log.Fatal("EOF reached or missing ;")
+		log.Fatal("EOF reached")
 	}
 	t := p.tokens[p.cur]
 	p.cur++
@@ -229,6 +229,9 @@ func (p *Parser) prev() Token {
 	return p.tokens[p.cur-1]
 }
 func (p *Parser) consume(reqTokens []string, errMsg string) bool {
+	if p.cur >= len(p.tokens) {
+		log.Fatal(errMsg)
+	}
 	t := p.next()
 	for _, reqToken := range reqTokens {
 		if reqToken == t.tt {
@@ -311,13 +314,13 @@ func (p *Parser) comparision() Node {
 
 func (p *Parser) printStmt() Node {
 	expr := p.comparision()
-	p.consume([]string{semicolon}, fmt.Sprintf("expected ; at %d", p.cur))
+	p.consume([]string{semicolon}, "expected ; after expression")
 	return PrintStmt{expr}
 }
 
 func (p *Parser) exprStmt() Node {
 	expr := p.comparision()
-	p.consume([]string{semicolon}, fmt.Sprintf("expected ; at %d", p.cur))
+	p.consume([]string{semicolon}, "expected ; after expression")
 	return expr
 }
 
