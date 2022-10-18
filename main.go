@@ -16,6 +16,15 @@ const (
 	num   = "NUM"
 	lPara = "L_PARA"
 	rPara = "R_PARA"
+	equal = "EQUALS"
+	// TODO
+	boolT              = "BOOL"
+	not                = "NOT"
+	notEqual           = "NOT_EQUALS"
+	lessThanOrEqual    = "LESS_THAN_OR_EQUALS"
+	greaterThanOrEqual = "GREATER_THAN_OR_EQUALS"
+	lessThan           = "GREATER"
+	greaterThan        = "LESSER"
 )
 
 type Token struct {
@@ -46,6 +55,18 @@ func (node BinOp) eval() interface{} {
 		log.Fatal("Invalid operation")
 	}
 	switch node.op.tt {
+	case equal:
+		return lVal == rVal
+	case notEqual:
+		return lVal != rVal
+	case lessThan:
+		return lVal.(int) < rVal.(int)
+	case lessThanOrEqual:
+		return lVal.(int) <= rVal.(int)
+	case greaterThan:
+		return lVal.(int) > rVal.(int)
+	case greaterThanOrEqual:
+		return lVal.(int) >= rVal.(int)
 	case add:
 		return lVal.(int) + rVal.(int)
 	case sub:
@@ -73,23 +94,35 @@ func (node UnaryOp) eval() interface{} {
 	rVal := node.right.eval()
 	if node.token.tt == sub {
 		return -(rVal.(int))
+	} else if node.token.tt == not {
+		return !(rVal.(bool))
 	}
 	return rVal
 }
 
-type NumNode struct {
+type PrimaryNode struct {
 	token Token
 }
 
-func (node NumNode) getType() string {
-	return "numnode"
+func (node PrimaryNode) getType() string {
+	return "PrimaryNode"
 }
-func (node NumNode) eval() interface{} {
-	val, err := strconv.Atoi(node.token.val)
-	if err != nil {
-		log.Fatal("Invalid number at", node.token.pos)
+func (node PrimaryNode) eval() interface{} {
+	if node.token.tt == num {
+		val, err := strconv.Atoi(node.token.val)
+		if err != nil {
+			log.Fatal("Invalid number at", node.token.pos)
+		}
+		return val
+	} else if node.token.tt == boolT {
+		val := true
+		if node.token.val == "false" {
+			val = false
+		}
+		return val
 	}
-	return val
+	log.Fatal("invalid value")
+	return nil
 }
 
 type Parser struct {
@@ -116,7 +149,24 @@ func lexer(s string) []Token {
 			tokens = append(tokens, Token{lPara, i, ""})
 		} else if c >= '0' && c <= '9' {
 			tokens = append(tokens, Token{num, i, getNum(&i, s)})
-			i--
+		} else if getKeyword(&i, s, []string{"true"}) != "" {
+			tokens = append(tokens, Token{boolT, i, "true"})
+		} else if getKeyword(&i, s, []string{"false"}) != "" {
+			tokens = append(tokens, Token{boolT, i, "false"})
+		} else if getKeyword(&i, s, []string{">="}) != "" {
+			tokens = append(tokens, Token{greaterThanOrEqual, i, ""})
+		} else if getKeyword(&i, s, []string{"<="}) != "" {
+			tokens = append(tokens, Token{lessThanOrEqual, i, ""})
+		} else if getKeyword(&i, s, []string{"<"}) != "" {
+			tokens = append(tokens, Token{lessThan, i, ""})
+		} else if getKeyword(&i, s, []string{">"}) != "" {
+			tokens = append(tokens, Token{greaterThan, i, ""})
+		} else if getKeyword(&i, s, []string{"=="}) != "" {
+			tokens = append(tokens, Token{equal, i, ""})
+		} else if getKeyword(&i, s, []string{"!="}) != "" {
+			tokens = append(tokens, Token{notEqual, i, ""})
+		} else if c == '!' {
+			tokens = append(tokens, Token{not, i, ""})
 		} else if c == ' ' {
 			continue
 		}
@@ -128,7 +178,18 @@ func getNum(i *int, s string) string {
 	for ; *i < len(s) && s[*i] <= '9' && s[*i] >= '0'; *i++ {
 		res += string(s[*i])
 	}
+	*i--
 	return res
+}
+func getKeyword(idx *int, s string, keywords []string) string {
+	i := *idx
+	for _, keyword := range keywords {
+		if len(keyword)+i <= len(s) && keyword == s[i:i+len(keyword)] {
+			*idx = i + len(keyword) - 1
+			return keyword
+		}
+	}
+	return ""
 }
 
 // Parser
@@ -174,23 +235,19 @@ func (p *Parser) match(reqTokens []string) bool {
 }
 
 func (p *Parser) primary() Node {
-	t := p.tokens[p.cur]
-	if t.tt == num {
-		p.next()
-		return NumNode{token: t}
-	} else if t.tt == lPara {
-		p.next()
+	if p.match([]string{num, boolT}) {
+		return PrimaryNode{token: p.prev()}
+	} else if p.match([]string{lPara}) {
 		innerNode := p.term()
 		p.consume([]string{rPara}, fmt.Sprintf("Expected ) at %d", p.cur))
 		return innerNode
 	}
-	log.Fatal("Expected number at", t.pos)
+	log.Fatal("Expected number at ", p.cur)
 	return nil
 }
 func (p *Parser) unary() Node {
-	t := p.tokens[p.cur]
-	if t.tt == sub {
-		op := p.next()
+	for p.match([]string{sub, not}) {
+		op := p.prev()
 		right := p.primary()
 		uNode := UnaryOp{op, right}
 		return uNode
@@ -220,8 +277,19 @@ func (p *Parser) term() Node {
 	return left
 }
 
+func (p *Parser) comparision() Node {
+	left := p.term()
+	for p.match([]string{equal, notEqual, greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual}) {
+		op := p.prev()
+		right := p.comparision()
+		temp := BinOp{left: left, op: op, right: right}
+		left = temp
+	}
+	return left
+}
+
 func (p *Parser) parse() Node {
-	return p.term()
+	return p.comparision()
 }
 
 func main() {
