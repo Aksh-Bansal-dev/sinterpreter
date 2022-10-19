@@ -1,7 +1,9 @@
 program        → statement* EOF ;
 statement      → exprStmt
-               | printStmt ;
+               | printStmt 
+               | varDecl ;
 
+varDecl        → "var" IDENTIFIER ( "=" expression )? ";" ;
 exprStmt       → comparison ";" ;
 printStmt      → "print" comparison ";" ;
 comparison           → term ( ( "<=" | ">=" | "<" | ">" | "==" || "!=" ) term )* ;

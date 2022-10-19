@@ -26,6 +26,9 @@ const (
 	greaterThan        = "LESSER"
 	semicolon          = "SEMICOLON"
 	printT             = "PRINT"
+	varT               = "VAR"
+	identifierT        = "IDENTIFIER"
+	assignT            = "ASSIGN"
 )
 
 type Token struct {
@@ -36,8 +39,20 @@ type Token struct {
 }
 
 type Node interface {
-	eval() interface{}
+	eval(env map[string]interface{}) interface{}
 	getType() string
+}
+type VarDecl struct {
+	identifier Token
+	expr       Node
+}
+
+func (node VarDecl) getType() string {
+	return "var_decl"
+}
+func (node VarDecl) eval(env map[string]interface{}) interface{} {
+	env[node.identifier.val] = node.expr.eval(env)
+	return nil
 }
 
 type PrintStmt struct {
@@ -47,8 +62,8 @@ type PrintStmt struct {
 func (node PrintStmt) getType() string {
 	return "print_stmt"
 }
-func (node PrintStmt) eval() interface{} {
-	fmt.Println(node.expr.eval())
+func (node PrintStmt) eval(env map[string]interface{}) interface{} {
+	fmt.Println(node.expr.eval(env))
 	return nil
 }
 
@@ -62,9 +77,9 @@ func (node BinOp) getType() string {
 	return "binop"
 }
 
-func (node BinOp) eval() interface{} {
-	lVal := node.left.eval()
-	rVal := node.right.eval()
+func (node BinOp) eval(env map[string]interface{}) interface{} {
+	lVal := node.left.eval(env)
+	rVal := node.right.eval(env)
 	if lVal == nil || rVal == nil {
 		log.Fatal("Invalid operation")
 	}
@@ -104,8 +119,8 @@ type UnaryOp struct {
 func (node UnaryOp) getType() string {
 	return "unary_op"
 }
-func (node UnaryOp) eval() interface{} {
-	rVal := node.right.eval()
+func (node UnaryOp) eval(env map[string]interface{}) interface{} {
+	rVal := node.right.eval(env)
 	if node.token.tt == sub {
 		return -(rVal.(int))
 	} else if node.token.tt == not {
@@ -121,7 +136,7 @@ type PrimaryNode struct {
 func (node PrimaryNode) getType() string {
 	return "PrimaryNode"
 }
-func (node PrimaryNode) eval() interface{} {
+func (node PrimaryNode) eval(env map[string]interface{}) interface{} {
 	if node.token.tt == num {
 		val, err := strconv.Atoi(node.token.val)
 		if err != nil {
@@ -134,6 +149,11 @@ func (node PrimaryNode) eval() interface{} {
 			val = false
 		}
 		return val
+	} else if node.token.tt == identifierT {
+		if _, ok := env[node.token.val]; ok {
+			return env[node.token.val]
+		}
+		log.Fatal("Undefined variable ", node.token.val)
 	}
 	log.Fatal("invalid value")
 	return nil
@@ -169,6 +189,8 @@ func lexer(s string, line int) []Token {
 			tokens = append(tokens, Token{printT, i, line, ""})
 		} else if getKeyword(&i, s, []string{"false"}) != "" {
 			tokens = append(tokens, Token{boolT, i, line, "false"})
+		} else if getKeyword(&i, s, []string{"var"}) != "" {
+			tokens = append(tokens, Token{varT, i, line, ""})
 		} else if getKeyword(&i, s, []string{">="}) != "" {
 			tokens = append(tokens, Token{greaterThanOrEqual, i, line, ""})
 		} else if getKeyword(&i, s, []string{"<="}) != "" {
@@ -181,12 +203,16 @@ func lexer(s string, line int) []Token {
 			tokens = append(tokens, Token{equal, i, line, ""})
 		} else if getKeyword(&i, s, []string{"!="}) != "" {
 			tokens = append(tokens, Token{notEqual, i, line, ""})
+		} else if getKeyword(&i, s, []string{"="}) != "" {
+			tokens = append(tokens, Token{assignT, i, line, ""})
 		} else if c == '!' {
 			tokens = append(tokens, Token{not, i, line, ""})
 		} else if c == ';' {
 			tokens = append(tokens, Token{semicolon, i, line, ""})
 		} else if c == ' ' {
 			continue
+		} else if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			tokens = append(tokens, Token{identifierT, i, line, getIdentifier(&i, s)})
 		} else {
 			log.Fatal("Invalid token")
 		}
@@ -212,6 +238,18 @@ func getKeyword(idx *int, s string, keywords []string) string {
 	}
 	return ""
 }
+func getIdentifier(i *int, s string) string {
+	res := ""
+	for ; *i < len(s) &&
+		s[*i] != ' ' &&
+		(s[*i] <= 'z' && s[*i] >= 'a') ||
+		(s[*i] <= 'Z' && s[*i] >= 'A') ||
+		(s[*i] <= '9' && s[*i] >= '0'); *i++ {
+		res += string(s[*i])
+	}
+	*i--
+	return res
+}
 
 // Parser
 func (p *Parser) next() Token {
@@ -228,18 +266,18 @@ func (p *Parser) prev() Token {
 	}
 	return p.tokens[p.cur-1]
 }
-func (p *Parser) consume(reqTokens []string, errMsg string) bool {
+func (p *Parser) consume(reqTokens []string, errMsg string) Token {
 	if p.cur >= len(p.tokens) {
 		log.Fatal(errMsg)
 	}
 	t := p.next()
 	for _, reqToken := range reqTokens {
 		if reqToken == t.tt {
-			return true
+			return t
 		}
 	}
 	log.Fatal(errMsg)
-	return false
+	return t
 }
 func (p *Parser) isEnd() bool {
 	return p.cur == len(p.tokens)
@@ -259,7 +297,7 @@ func (p *Parser) match(reqTokens []string) bool {
 }
 
 func (p *Parser) primary() Node {
-	if p.match([]string{num, boolT}) {
+	if p.match([]string{num, boolT, identifierT}) {
 		return PrimaryNode{token: p.prev()}
 	} else if p.match([]string{lPara}) {
 		innerNode := p.term()
@@ -318,6 +356,12 @@ func (p *Parser) printStmt() Node {
 	return PrintStmt{expr}
 }
 
+func (p *Parser) varDecl() Node {
+	identifier := p.consume([]string{identifierT}, "Expected a variable name")
+	p.consume([]string{assignT}, "expected = after identifier")
+	return VarDecl{identifier, p.exprStmt()}
+}
+
 func (p *Parser) exprStmt() Node {
 	expr := p.comparision()
 	p.consume([]string{semicolon}, "expected ; after expression")
@@ -327,6 +371,8 @@ func (p *Parser) exprStmt() Node {
 func (p *Parser) statement() Node {
 	if p.match([]string{printT}) {
 		return p.printStmt()
+	} else if p.match([]string{varT}) {
+		return p.varDecl()
 	}
 	return p.exprStmt()
 }
@@ -347,6 +393,7 @@ func main() {
 	}
 	reader := bufio.NewReader(file)
 	lineNum := 1
+	env := map[string]interface{}{}
 	for {
 		inp, _, err := reader.ReadLine()
 		if err != nil {
@@ -357,7 +404,7 @@ func main() {
 		parser := Parser{0, tokens}
 		ast := parser.parse()
 		// fmt.Println(ast)
-		ast.eval()
+		ast.eval(env)
 		// fmt.Println(res)
 		lineNum++
 	}
